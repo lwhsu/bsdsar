@@ -1,0 +1,284 @@
+#!/usr/bin/perl
+#Copyright (c) 2002, Trinitel Corporation
+#All rights reserved.
+
+#Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+#    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#    * Neither the name of the Trinitel Corporation nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#######################################################
+
+# Need to look at command line options, parse them,
+# and do what is necessary.
+$versioninfo = "bsdsar v1.10 - Eric Anderson ";
+$directory = "/var/log";
+$date = `date \"+%m %d\"`;
+chomp $date;
+($mo, $da) = split/ /,$date;
+$date = $mo . $da;
+
+# flags needed to recognize:
+# -n day#
+# -f file
+# -u cpu
+# -d disk
+# -r memory & swap
+# -N nfs
+# -i net
+# -I net / second
+# -a displays all data
+# -v displays version info
+
+# -s show top 5 cpu processes
+# -S show top 5 mem processes
+# -p paging / swapping
+# -w ip
+# -t tcp
+# -U udp
+# -m icmp
+
+
+$i = 0; # counter for going thru command line options
+$flag = $ARGV[$i];
+if ($ARGV[$i]) {
+while ($flag) {
+	$flag = $ARGV[$i];
+	if ($flag =~ /-n/) { $i++; $day = $ARGV[$i]; } 
+	if ($flag =~ /-f/) { $i++; $file = $ARGV[$i]; } 
+	if ($flag =~ /-a/) { $cpu = $disk = $memswap = $pageswap = $ip = $tcp = $udp = $icmp = $nfs = $net = $netsec = $hasoptions = 1; }
+	if ($flag =~ /-u/) { $cpu = $hasoptions = 1; }
+	if ($flag =~ /-d/) { $disk = $hasoptions = 1; }
+	if ($flag =~ /-r/) { $memswap = $hasoptions = 1; }
+	if ($flag =~ /-p/) { $pageswap = $hasoptions = 1; }
+	if ($flag =~ /-w/) { $ip = $hasoptions = 1; }	
+	if ($flag =~ /-t/) { $tcp = $hasoptions = 1; }
+	if ($flag =~ /-U/) { $udp = $hasoptions = 1; }
+	if ($flag =~ /-m/) { $icmp = $hasoptions = 1; }
+	if ($flag =~ /-N/) { $nfs = $hasoptions = 1; }
+	if ($flag =~ /-i/) { $net = $hasoptions = 1; }
+	if ($flag =~ /-I/) { $netsec = $hasoptions = 1; }
+	if ($flag =~ /-s/) { $top5cpu = $hasoptions = 1; }
+	if ($flag =~ /-S/) { $top5mem = $hasoptions = 1; }
+	if ($flag =~ /-v/) { $version = 1; }
+	if ($flag =~ /-h/) {
+		if ($hasoptions) {
+			$verboseheaders = 1;
+		} else {
+			print qq~$versioninfo
+Usage: bsdsar [options]
+Options:
+ -n day#
+ -f file
+ -v version info
+ -a show all recorded data
+ -u cpu
+ -d disk
+ -r memory & swap
+ -i net
+ -I net / second
+ -N nfs
+ -s top 5 cpu processes
+ -S top 5 mem processes
+ 
+Examples:
+ bsdsar -u -d -f /var/log/bsdsar.dat -n 12
+ bsdsar -i -n 0301
+ bsdsar -r
+~;
+exit;
+		}
+	}
+	$i++;
+}
+} else {
+	$cpu = 1;	
+}
+
+# suck in all the data for today
+if ($file) {
+	$datafile = $file;
+} else {
+	$datafile = "$directory\/bsdsar.dat";
+}
+
+if ($day) {
+	if (length($day) < 3) {
+		$date = "$mo" . "$day";
+	} elsif (length($day) < 4) {	
+		$date = "0" . "$day";
+	} elsif (length($day) < 5) {
+		$date = $day;
+	}
+}
+open(DATA,"$datafile");
+while (<DATA>) {	
+	$linedata = $_;
+	if ( $linedata =~ /^$date /) {
+		push (@sardata, $linedata);
+	}
+}
+close(DATA);
+
+&show_cpu if $cpu;
+&show_disk if $disk;
+&show_memswap if $memswap;
+&show_net if $net;
+&show_netsec if $netsec;
+&show_nfs if $nfs;
+&show_ver if $version;
+&show_topcpu if $top5cpu;
+&show_topmem if $top5mem;
+
+
+#if ($pageswap) { &gather_pageswap; &showpageswap; }
+#if ($ip) { &gather_ip; &show_ip; }
+#if ($tcp) { &gather_tcp; &show_tcp; }
+#if ($udp) { &gather_udp; &show_udp; }
+#if ($icmp) { &gather_icmp; &show_icmp; }
+
+#### SUB ROUTINES ####
+sub show_topcpu {
+	foreach $line (@sardata) {
+		@sarline = split /\|/,$line;
+		($date, $time) = split / /, $sarline[0];
+		printf "%5s\:\n", $time;
+		$topcpudata = $sarline[33];
+		$topcpudata =~ s/\+\+/\n/gc;
+		print "$topcpudata\n\n";
+	}
+}
+
+sub show_topmem {
+        foreach $line (@sardata) {
+                @sarline = split /\|/,$line;
+                ($date, $time) = split / /, $sarline[0];
+                printf "%5s\:\n", $time;
+                $topmemdata = $sarline[34];
+                $topmemdata =~ s/\+\+/\n/gc;
+                print "$topmemdata\n\n";
+        }
+}
+
+sub show_ver {
+	print "$versioninfo\n";
+	print "\n";
+}
+
+sub show_nfs {
+	if ($verboseheaders) {
+  	print "Time     Client     Client     Client         Server     Server     Server\n";
+  	print "         writes     reads      requests       writes     reads      accesses\n";
+	} else {
+	print "Time  Client Wt  Client Rd  Client Rqst    Server Wt  Server Rd  Server Access\n";
+	}
+  foreach $line (@sardata) {
+    @sarline = split /\|/,$line;
+    ($date, $time) = split / /, $sarline[0];
+    printf "%5s %9s %10s %12s %12s %10s %14s\n", $time, $sarline[27], $sarline[28], $sarline[29], $sarline[30], $sarline[31], $sarline[32];
+  }
+
+}
+
+sub show_netsec {
+        #print "Time  In Pkt/s  In Errs/s  In Bytes/s  Out Pkt/s  Out Errs/s  Out Bytes/s  Coll/s  Interface\n";
+        for ($i = 22; $i <= 25; $i++) {
+        $datalength = $#sardata;
+        for ($j = 0; $j <= $datalength; $j++) {
+                @sarline = split /\|/,$sardata[$j];
+                ($date, $time) = split / /, $sarline[0];
+                ($ifacename,$inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll) = split /\,/,$sarline[$i];
+                @sarline2 = split /\|/,$sardata[$j-1];
+                ($date2, $time2) = split / /, $sarline2[0];
+		( $hrs1, $mins1 ) = split/\:/,$time;
+		( $hrs2, $mins2 ) = split/\:/,$time2;
+		$hrsdiff = $hrs1 - $hrs2;
+		$mindiff = ($mins1 - $mins2) + ($hrsdiff * 60);
+		$secdiff = 60 * $mindiff;
+                ($ifacename,$inpkts2,$inerrs2,$inbytes2,$outpkts2,$outerrs2,$outbytes2,$coll2) = split /\,/,$sarline2[$i];
+                if ($j < 1) {
+		if ($verboseheaders) {
+		if ($ifacename) { 
+			print "Time  In Packets  In Errors  In Bytes    Out Packets  Out Errors  Out Bytes   Collisions  Interface\n";
+			print "      per second  per second per second  per second   per second  per second  per second\n";
+		}
+		} else {
+		if ($ifacename) { print "Time  In Pkt/s  In Errs/s  In Bytes/s  Out Pkt/s  Out Errs/s  Out Bytes/s  Coll/s  Interface\n"; }
+		}
+                        printf "%5s %8s %10s %11s %10s %11s %12s %7s %10s\n", $time, $inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll, $ifacename if $ifacename && $inbytes;
+                } else {
+			if ($inpkts < $inpkts2) { $inpkts2 = "0"; }
+			if ($inerrs < $inerrs2) { $inerrs2 = "0"; }
+			if ($inbytes < $inbytes2) { $inbytes2 = "0";}
+			if ($outpkts < $outpkts2) { $outpkts2 = "0";}
+			if ($outerrs < $outerrs2) { $outerrs2 = "0";}
+			if ($outbytes < $outbytes2) { $outbytes2 = "0";}
+                        $inpkts = int(($inpkts - $inpkts2) / $secdiff);
+                        $inerrs = int(($inerrs - $inerrs2) / $secdiff);
+                        $inbytes = int(($inbytes - $inbytes2) / $secdiff);
+                        $outpkts = int(($outpkts - $outpkts2) / $secdiff);
+                        $outerrs = int(($outerrs - $outerrs2) / $secdiff);
+                        $outbytes = int(($outbytes - $outbytes2) / $secdiff);
+                        $coll = int(($coll - $coll2) / $secdiff);
+
+                        printf "%5s %8s %10s %11s %10s %11s %12s %7s %10s\n", $time, $inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll, $ifacename if $ifacename && $inbytes;
+                }
+
+        }
+
+	if ($ifacename) { print "\n"; }
+        }
+}
+
+sub show_net {
+	for ($i = 22; $i <= 25; $i++) {
+	$datalength = $#sardata;
+	if ($sarline[$i]) { print "Time       In Pkts    In Errors     In Bytes     Out Pkts   Out Errors    Out Bytes    Coll  Interface\n"; }
+	foreach $line (@sardata) {
+		@sarline = split /\|/,$line;
+		($date, $time) = split / /, $sarline[0];
+		($ifacename,$inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll) = split /\,/,$sarline[$i];
+		printf "%5s %12s %12s %12s %12s %12s %12s %7s %6s\n", $time, $inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll, $ifacename if $ifacename && $inbytes;
+	}
+	if ($sarline[$i]) { print "\n"; }
+	}
+}
+
+sub show_memswap {
+	print "Time   Free Mem  Active Mem  Inactive Mem  Total Swap  Used Swap  Free Swap\n";
+	foreach $line (@sardata) {
+		@sarline = split /\|/,$line;
+		($date, $time) = split / /, $sarline[0];
+		printf "%5s %7s %10s %13s %12sk %9sk %10sk\n", $time, $sarline[1], $sarline[2], $sarline[3], $sarline[4], $sarline[5], $sarline[6];
+	}
+}
+
+sub show_cpu {
+	print "Time     % User  % Sys  % Nice  % Intrpt  % Idle  \n";
+	foreach $line (@sardata) {
+		@sarline = split /\|/,$line;
+		($date, $time) = split / /, $sarline[0];
+		printf "%5s %7s %6s %7s %9s %7s\n", $time, $sarline[7], $sarline[9], $sarline[8], $sarline[10], $sarline[11];
+	}
+}
+
+sub show_disk {
+	if ($verboseheaders) {
+	print " Measured in transactions per second.\n";
+        print "Time   ad0  ad1  ad2  ad3  da0  da1  da2  da3  da4  da5  da6\n";
+	} else {
+        print "Time   ad0  ad1  ad2  ad3  da0  da1  da2  da3  da4  da5  da6\n";
+	}
+        foreach $line (@sardata) {
+                @sarline = split /\|/,$line;
+                ($date, $time) = split / /, $sarline[0];
+                printf "%5s %4s %4s %4s %4s %4s %4s %4s %4s %4s %4s %4s\n", $time, $sarline[12], $sarline[13], $sarline[14], $sarline[15], $sarline[16], $sarline[17], $sarline[18], $sarline[19], $sarline[20], $sarline[21], $sarline[22];
+        }
+}
+
+
+
+
+

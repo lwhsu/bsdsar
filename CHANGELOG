@@ -1,0 +1,56 @@
+BSDSAR version 1.10
+-------------------
+- added config file functionality (thanks Krzystof)
+- config file allows selection of which data to log
+- config file allows setting of max dat file size
+
+BSDSAR version 1.00
+-------------------
+- fixed bug for 100% busy on other items
+- added ps options (-s and -S)
+- faster runtime with the -n netstat option (thanks Um)
+
+BSDSAR version 0.10
+-------------------
+- fixed bug in 100% busy for user, etc.
+
+------------------
+BSDSAR version 0.9
+------------------
+- new option -h now shows help, using bsdsar without options show -u now
+- now, any option with a -h will show 'helpful' headers for that option
+- If log file is > 2100000 bytes, it trims down to size and continues updating
+
+BSDSAR version 0.8
+------------------
+- new option -v shows version information
+- fixed bug in 100% idle time - now displays correctly
+- possibly fixed scsi disk display problem
+- tweaked output of network info display - looks better
+
+Needs to eventually crop old data from log file
+
+BSDSAR version 0.7
+------------------
+- new option -I shows network usage over time
+- new option -a show all data stored
+
+BSDSAR version 0.6
+------------------
+- NFS client / server data is now stored and displayed with the -N option
+
+
+BSDSAR version 0.5
+------------------
+First real release.
+Options include:
+- Select different data files from any directory
+- Select day and/or month to view info about
+- supports disk, memory, cpu and network usage.
+
+NFS should be implemented in version 0.6
+
+
+Eric Anderson
+http://www.googlebit.com/bsdsar/
+

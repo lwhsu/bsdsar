@@ -1,0 +1,58 @@
+bsdsar is a simple set of programs to log the usage of a FreeBSD based system over time.  It is very useful if you have a server that is used for NFS, web, ftp, samba, etc, serving and you need to know how heavily loaded the box is.  
+
+Command line arguments:
+Options:
+ -n day#
+ -f file
+ -v version info
+ -a show all recorded data
+ -u cpu
+ -d disk
+ -r memory & swap
+ -i net
+ -I net / second
+ -N nfs
+ -s show top 5 cpu heavy processes
+ -S show top 5 mem heavy processes
+
+No arguments results in the current days cpu usage:
+bash-2.04$ bsdsar   
+Time     % User  % Sys  % Nice  % Intrpt  % Idle  
+00:00       0      0       0        21      79
+01:00       0      0       0        20      80
+02:00       0      6       0        18      76
+03:00       0      1       0        20      79
+04:00       0      0       0        20      80
+05:00       0      0       0        19      81
+06:00       0      0       0        20      80
+07:00       0      0       0        22      78
+08:00       0      0       0        20      80
+08:20       0      0       0        21      79
+
+
+With the -n function, you can see data from any day:
+bash-2.04$ bsdsar -n 05 -u
+Time     % User  % Sys  % Nice  % Intrpt  % Idle  
+00:00       1      0       0        20      79
+01:01       0      0       0        20      80
+02:01       0      0       0        21      79
+03:01       0      0       0        20      80
+04:01       0      0       0        21      79
+05:01       0      0       0        20      80
+06:01       0      0       0        20      80
+07:01       0      0       0        19      81
+08:01       0      0       0        20      80
+...
+
+Notice that you need an argument with the -n function.
+
+You can specify many arguments on one line:
+ bsdsar -u -d -f /var/log/bsdsar.dat -n 12
+ bsdsar -i -n 0301
+ bsdsar -r
+
+Or a:
+ bsdsar -a
+shows all recorded data for that day.
+
+

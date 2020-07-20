@@ -1,0 +1,247 @@
+#!/usr/bin/perl
+#Copyright (c) 2002, Trinitel Corporation
+#All rights reserved.
+
+#Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+#    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#    * Neither the name of the Trinitel Corporation nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#######################################################
+
+# Need to look at command line options, parse them,
+# and do what is necessary.
+# bsdsar_gather version 1.10
+# $ bsdsar /path/to/bsdsar.conf
+# Typically the config file is at /usr/local/etc/bsdsar.conf
+
+$configfile = shift;
+if (!($configfile)) {
+	$configfile = "/usr/local/etc/bsdsar.conf";
+}
+
+$time = `date "+%m%d %H:%M"`;
+chomp $time;
+
+open(CONFIG,"$configfile");
+while (<CONFIG>) {
+    chomp;                  # no newline
+    s/#.*//;                # no comments
+    s/^\s+//;               # no leading white
+    s/\s+$//;               # no trailing white
+    next unless length;     # anything left?
+    my ($var, $value) = split(/\s*=\s*/, $_, 2);
+    $User_Preferences{$var} = $value;
+}
+close(CONFIG);
+
+$directory = $User_Preferences{'log_directory'};
+if (!($directory)) {
+	$directory = "/var/log";
+}
+$maxdatasize = $User_Preferences{'max_data_file_size'};
+$gather_cpu = $User_Preferences{'cpu'};
+$gather_disk = $User_Preferences{'disk'};
+$gather_mem= $User_Preferences{'memory_swap'};
+$gather_net = $User_Preferences{'net'};
+$gather_nfs = $User_Preferences{'nfs'};
+$gather_procs = $User_Preferences{'cpu_mem_processes'};
+
+&get_mem_info;
+&get_swap_info;
+&get_cpu_info;
+&get_disk_info;
+&get_network_info;
+&get_nfs_info;
+&get_process_lists;
+
+&check_datafile_size;
+&write_data_file;
+
+
+##################
+sub check_datafile_size {
+	#	
+	$datafile = "$directory\/bsdsar.dat";
+	if ((-s $datafile) > $maxdatasize) {
+		# whack the first 200 entries
+		open(DFILE, "$datafile");
+		@dlines = <DFILE>;
+		close(DFILE);
+		@junk = splice(@dlines, 0, 200);
+		open(DFILE, ">$datafile");
+		print DFILE @dlines;
+		close(DFILE);	
+	}
+}
+
+
+sub get_network_info {
+	if ($gather_net =~ /on/i) {
+	$ifacecount = 0;
+
+	@netstatdata = `netstat -b -i -n`;
+	foreach $temp (@netstatdata) {
+		if (($temp !~ /^(sl|ppp|lo|gif|faith|lp)/) && ($temp =~ /Link/)) {
+			push (@netstatlist, $temp);
+		}
+	}
+	# now lets pull data from netstatlist
+	foreach $ifaceline (@netstatlist) {
+		chomp $ifaceline;
+		($ifacename, $Mtu, $Network, $Address, $inpkts, $inerrs, $inbytes, $outpkts, $outerrs, $outbytes, $coll) = split/\s+/,$ifaceline;
+		if ( $coll eq "") {
+			# $coll is empty because of a blank column, assume this is Address
+			# so try again wthout it
+			($ifacename, $Mtu, $Network, $inpkts, $inerrs, $inbytes, $outpkts, $outerrs, $outbytes, $coll) = split/\s+/,$ifaceline;
+		}
+
+		$ifaceinfo .= "$ifacename,$inpkts,$inerrs,$inbytes,$outpkts,$outerrs,$outbytes,$coll\|";
+		$ifacecount++;
+	}
+	$ifaceleft = 4 - $ifacecount;
+	for ($i = 1; $i <= $ifaceleft; $i++) {
+                $ifaceinfo .= "\|";
+        }
+	# store interface info
+	$objects{'ifacestats'} = $ifaceinfo;	
+	} else {
+		$objects{'ifacestats'} = ",,,,,,,\|,,,,,,,\|,,,,,,,\|,,,,,,,\|";
+	}
+
+}
+
+sub write_data_file {
+	$datafile = "$directory\/bsdsar.dat";
+	open(DATA,">>$datafile");
+	print DATA "$time\|$objects{'memfree'}\|$objects{'memactive'}\|$objects{'meminactive'}\|";
+	print DATA "$objects{'totalswap'}\|$objects{'usedswap'}\|$objects{'freeswap'}\|";
+	print DATA "$objects{'cpu_user'}\|$objects{'cpu_nice'}\|$objects{'cpu_sys'}\|$objects{'cpu_use'}\|$objects{'cpu_idle'}\|";
+	print DATA "$objects{'ad0'}\|$objects{'ad1'}\|$objects{'ad2'}\|$objects{'ad3'}\|";
+	print DATA "$objects{'da0'}\|$objects{'da1'}\|$objects{'da2'}\|$objects{'da3'}\|$objects{'da4'}\|$objects{'da5'}\|$objects{'da6'}\|";
+	print DATA "$objects{'ifacestats'}";
+  	print DATA "$objects{'nfsclientread'}\|$objects{'nfsclientwrite'}\|$objects{'nfsclientreq'}\|";
+  	print DATA "$objects{'nfssrvrread'}\|$objects{'nfssrvrwrite'}\|$objects{'nfssrvraccess'}\|";
+	print DATA "$process_by_cpu\|";
+	print DATA "$process_by_mem\|";
+	print DATA "\n";
+	close(DATA);
+}
+
+sub get_nfs_info {
+	if ($gather_nfs =~ /on/i) {
+	@rawnfs_info = `nfsstat`;
+	@clientline = split /\s+/,$rawnfs_info[3];
+	$objects{'nfsclientread'} = $clientline[4];
+	$objects{'nfsclientwrite'} = $clientline[5];
+	@clientline = split /\s+/,$rawnfs_info[10];
+	$objects{'nfsclientreq'} = $clientline [4];
+  
+	@srvline = split /\s+/, $rawnfs_info[19];
+	$objects{'nfssrvrread'} = $srvline[4];
+	$objects{'nfssrvrwrite'} = $srvline[5];
+	@srvline = split /\s+/, $rawnfs_info[21];
+	$objects{'nfssrvraccess'} = $srvline[7];
+	} else {
+		$objects{'nfsclientread'} = "";
+		$objects{'nfsclientwrite'} = "";
+		$objects{'nfsclientreq'} = "";
+		$objects{'nfssrvrread'} = "";
+		$objects{'nfssrvrwrite'} = "";
+		$objects{'nfssrvraccess'} = "";
+	}
+}
+
+sub get_mem_info {
+	if ($gather_mem =~ /on/i) {
+	@toplist = `top -d 1 -b`;
+	@meminfo = split /\s+/,$toplist[3];
+	$objects{'memfree'} = $meminfo[11];
+	$objects{'memactive'} = $meminfo[1];
+	$objects{'meminactive'} = $meminfo[3];
+	} else {
+		$objects{'memfree'} = $objects{'memactive'} = $objects{'meminactive'} = "";
+	}
+}
+
+sub get_swap_info {
+	if ($gather_mem =~ /on/i) {
+	@swapinfo = `pstat -s -k`;
+	@swapdata = split /\s+/,$swapinfo[1];
+	$objects{'totalswap'} = $swapdata[1];
+	$objects{'usedswap'} = $swapdata[2];
+	$objects{'freeswap'} = $swapdata[3];
+	} else {
+		$objects{'totalswap'} = $objects{'usedswap'} = $objects{'freeswap'} = "";
+	}
+}
+
+sub get_cpu_info {
+	if ($gather_cpu =~ /on/i) {
+	@raw_iostat_cpu = `iostat -C -n 0 1 2`;
+	($junk, $junk, $junk, $objects{'cpu_user'}, $objects{'cpu_nice'}, $objects{'cpu_sys'}, $objects{'cpu_use'}, $objects{'cpu_idle'}) = split/\s+/,$raw_iostat_cpu[3];
+	if ($objects{'cpu_use'} eq "0100") { $objects{'cpu_use'} = 0; $objects{'cpu_idle'} = "100"; }
+	if ($objects{'cpu_user'} eq "0100") { $objects{'cpu_user'} = $objects{'cpu_sys'} = $objects{'cpu_use'} = $objects{'cpu_idle'} = 0; $objects{'cpu_nice'} = "100"; }
+	if ($objects{'cpu_nice'} eq "0100") { $objects{'cpu_nice'} = $objects{'cpu_use'} = $objects{'cpu_idle'} = 0; $objects{'cpu_sys'} = "100"; }
+	if ($objects{'cpu_sys'} eq "0100") { $objects{'cpu_sys'} = $objects{'cpu_idle'} = 0; $objects{'cpu_use'} = "100"; }
+	} else {
+		$objects{'cpu_sys'} = "";
+		$objects{'cpu_idle'} = "";
+		$objects{'cpu_use'} = "";
+		$objects{'cpu_user'} = "";
+		$objects{'cpu_nice'} = "";
+	}
+}
+
+sub get_process_lists {
+	if ($gather_procs =~ /on/i) {
+	# get top 5 cpu users
+	@top_cpu = `ps -auxwwr \| head -6`;
+	$process_by_cpu = "@top_cpu";
+	$process_by_cpu =~ s/\n/\+\+/gc;
+	$process_by_cpu =~ s/\|/\[PIPE\]/gc;
+	@top_mem = `ps -auxwwm \| head -6`;
+	$process_by_mem = "@top_mem";
+	$process_by_mem =~ s/\n/\+\+/gc;
+	$process_by_mem =~ s/\|/\[PIPE\]/gc;
+	} else {
+		$process_by_cpu = $process_by_mem = "";
+	}
+}
+
+sub get_disk_info {
+	if ($gather_disk =~ /on/i) {
+	@vminfo_disks = `vmstat -n 11 -p IDE -p SCSI 1 2`;
+	@taglist = split /\s+/,$vminfo_disks[1];
+	$h = 0;
+	foreach $tag (@taglist) {
+		if ($tag =~ /ad[0-7]/) { $idedrives{$tag} = $h; }
+		elsif ($tag =~ /da[0-6]/) { $scsidrives{$tag} = $h; }
+		$h++;
+	}
+	@drive_info = split /\s+/,$vminfo_disks[3];
+	$objects{'ad0'} = $drive_info[$idedrives{'ad0'}];
+	$objects{'ad1'} = $drive_info[$idedrives{'ad1'}];
+	$objects{'ad2'} = $drive_info[$idedrives{'ad2'}];
+	$objects{'ad3'} = $drive_info[$idedrives{'ad3'}];
+	$objects{'ad4'} = $drive_info[$idedrives{'ad4'}];
+	$objects{'ad5'} = $drive_info[$idedrives{'ad5'}];
+	$objects{'ad6'} = $drive_info[$idedrives{'ad6'}];
+	$objects{'ad7'} = $drive_info[$idedrives{'ad7'}];
+	$objects{'da0'} = $drive_info[$scsidrives{'da0'}];
+	$objects{'da1'} = $drive_info[$scsidrives{'da1'}];
+	$objects{'da2'} = $drive_info[$scsidrives{'da2'}];
+	$objects{'da3'} = $drive_info[$scsidrives{'da3'}];
+	$objects{'da4'} = $drive_info[$scsidrives{'da4'}];
+	$objects{'da5'} = $drive_info[$scsidrives{'da5'}];
+	$objects{'da6'} = $drive_info[$scsidrives{'da6'}];
+	} else {
+		$objects{'ad0'} = $objects{'ad1'} = $objects{'ad2'} = "";
+		$objects{'ad3'} = $objects{'ad4'} = $objects{'ad5'} = "";
+		$objects{'ad6'} = $objects{'ad7'} = $objects{'da0'} = "";
+		$objects{'da1'} = $objects{'da2'} = $objects{'da3'} = "";
+		$objects{'da4'} = $objects{'da5'} = $objects{'da6'} = "";
+	}
+}
